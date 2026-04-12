@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     future::{Future, IntoFuture},
     pin::Pin,
     sync::{Arc, Mutex},
@@ -8,7 +9,16 @@ use std::{
 
 use crate::signal::{Signal, SignalState};
 
+thread_local! {
+    static CURRENT_HANDLE: RefCell<Option<EventLoopHandle>> = const { RefCell::new(None) };
+}
+
+#[derive(Clone)]
 pub struct EventLoopHandle {
+    queues: Arc<Mutex<EventLoopQueue>>,
+}
+
+struct EventLoopQueue {
     tasks: Vec<(Pin<Box<dyn Future<Output = ()>>>, Arc<Signal>)>,
     timers: Vec<(Instant, Waker)>,
 }
@@ -16,13 +26,15 @@ pub struct EventLoopHandle {
 impl EventLoopHandle {
     fn new() -> Self {
         Self {
-            tasks: Vec::new(),
-            timers: Vec::new(),
+            queues: Arc::new(Mutex::new(EventLoopQueue {
+                tasks: Vec::new(),
+                timers: Vec::new(),
+            })),
         }
     }
 
     pub fn add_timer(&mut self, time: Instant, waker: Waker) {
-        self.timers.push((time, waker));
+        self.queues.lock().unwrap().timers.push((time, waker));
     }
 
     pub fn spawn<F>(&mut self, fut: F)
@@ -30,32 +42,52 @@ impl EventLoopHandle {
         F: Future<Output = ()> + 'static,
     {
         let waker = Arc::new(Signal::new());
-        self.tasks.push((Box::pin(fut.into_future()), waker));
+        self.queues
+            .lock()
+            .unwrap()
+            .tasks
+            .push((Box::pin(fut.into_future()), waker));
+    }
+
+    pub fn current<'a>() -> Option<Self> {
+        CURRENT_HANDLE.with(|cell| cell.borrow_mut().clone())
     }
 }
 
 pub struct EventLoop {
-    handle: Arc<Mutex<EventLoopHandle>>,
     timers: Vec<(Instant, Waker)>,
     tasks: Vec<(Pin<Box<dyn Future<Output = ()>>>, Arc<Signal>)>,
 }
 
 impl EventLoop {
-    pub fn new() -> (Self, Arc<Mutex<EventLoopHandle>>) {
-        let handle = Arc::new(Mutex::new(EventLoopHandle::new()));
-        (
-            Self {
-                handle: Arc::clone(&handle),
-                timers: Vec::new(),
-                tasks: Vec::new(),
-            },
-            handle,
-        )
+    pub fn new() -> Self {
+        let handle = EventLoopHandle::new();
+        CURRENT_HANDLE.with(|cell| cell.replace(Some(handle)));
+
+        Self {
+            timers: Vec::new(),
+            tasks: Vec::new(),
+        }
     }
 
     fn update(&mut self) -> bool {
-        self.tasks.append(&mut self.handle.lock().unwrap().tasks);
-        self.timers.append(&mut self.handle.lock().unwrap().timers);
+        self.tasks.append(
+            &mut EventLoopHandle::current()
+                .unwrap()
+                .queues
+                .lock()
+                .unwrap()
+                .tasks,
+        );
+
+        self.timers.append(
+            &mut EventLoopHandle::current()
+                .unwrap()
+                .queues
+                .lock()
+                .unwrap()
+                .timers,
+        );
 
         self.timers.retain(|(time, waker)| {
             if *time <= Instant::now() {
