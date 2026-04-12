@@ -71,23 +71,14 @@ impl EventLoop {
     }
 
     fn update(&mut self) -> bool {
-        self.tasks.append(
-            &mut EventLoopHandle::current()
-                .unwrap()
-                .queues
-                .lock()
-                .unwrap()
-                .tasks,
-        );
+        {
+            let event_loop = EventLoopHandle::current().unwrap();
+            let mut queues = event_loop.queues.lock().unwrap();
 
-        self.timers.append(
-            &mut EventLoopHandle::current()
-                .unwrap()
-                .queues
-                .lock()
-                .unwrap()
-                .timers,
-        );
+            self.tasks.append(&mut queues.tasks);
+
+            self.timers.append(&mut queues.timers);
+        }
 
         self.timers.retain(|(time, waker)| {
             if *time <= Instant::now() {
@@ -146,5 +137,11 @@ impl EventLoop {
             }
             std::thread::sleep(Duration::from_millis(1));
         }
+    }
+}
+
+impl Drop for EventLoop {
+    fn drop(&mut self) {
+        CURRENT_HANDLE.set(None);
     }
 }
