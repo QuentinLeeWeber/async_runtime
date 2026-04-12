@@ -1,5 +1,6 @@
 use std::{
     future::Future,
+    pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll},
     time::{Duration, Instant},
@@ -26,7 +27,7 @@ impl SleepFuture {
 impl Future for SleepFuture {
     type Output = ();
 
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let completion_time = self.completion_time.clone();
 
         if !self.is_spawned {

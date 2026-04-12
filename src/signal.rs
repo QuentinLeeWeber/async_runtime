@@ -7,6 +7,7 @@ use std::{
 pub enum SignalState {
     Running,
     Waiting,
+    Ready,
 }
 
 #[derive(Debug)]
@@ -29,6 +30,11 @@ impl Signal {
     pub fn notify(&self) {
         let mut state = self.state.lock().unwrap();
         *state = SignalState::Running;
+    }
+
+    pub fn ready(&self) {
+        let mut state = self.state.lock().unwrap();
+        *state = SignalState::Ready;
     }
 }
 

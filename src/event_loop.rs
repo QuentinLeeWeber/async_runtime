@@ -3,7 +3,7 @@ use std::{
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll, Waker},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use crate::signal::{Signal, SignalState};
@@ -14,7 +14,7 @@ pub struct EventLoopHandle {
 }
 
 impl EventLoopHandle {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             tasks: Vec::new(),
             timers: Vec::new(),
@@ -41,15 +41,19 @@ pub struct EventLoop {
 }
 
 impl EventLoop {
-    pub fn new(handle: Arc<Mutex<EventLoopHandle>>) -> Self {
-        Self {
+    pub fn new() -> (Self, Arc<Mutex<EventLoopHandle>>) {
+        let handle = Arc::new(Mutex::new(EventLoopHandle::new()));
+        (
+            Self {
+                handle: Arc::clone(&handle),
+                timers: Vec::new(),
+                tasks: Vec::new(),
+            },
             handle,
-            timers: Vec::new(),
-            tasks: Vec::new(),
-        }
+        )
     }
 
-    pub fn update(&mut self) {
+    fn update(&mut self) -> bool {
         self.tasks.append(&mut self.handle.lock().unwrap().tasks);
         self.timers.append(&mut self.handle.lock().unwrap().timers);
 
@@ -62,9 +66,9 @@ impl EventLoop {
             }
         });
 
-        self.tasks.retain_mut(|(task, signal)| {
+        self.tasks.iter_mut().for_each(|(task, signal)| {
             if let SignalState::Waiting = *signal.state.lock().unwrap() {
-                return true;
+                return;
             }
 
             match task
@@ -73,10 +77,42 @@ impl EventLoop {
             {
                 Poll::Pending => {
                     signal.pause();
-                    true
                 }
-                Poll::Ready(_) => false,
+                Poll::Ready(_) => {
+                    signal.ready();
+                }
             }
         });
+
+        if self.tasks.is_empty() {
+            return true;
+        }
+
+        if let SignalState::Ready = *self.tasks.get(0).unwrap().1.state.lock().unwrap() {
+            return true;
+        }
+
+        self.tasks.retain(|(_task, signal)| {
+            if let SignalState::Ready = *signal.state.lock().unwrap() {
+                return false;
+            }
+            true
+        });
+
+        false
+    }
+
+    pub fn block_on<F: Future<Output = ()> + 'static>(&mut self, future: F) {
+        let signal = Arc::new(Signal::new());
+        let task = Box::pin(future);
+        self.tasks.push((task, Arc::clone(&signal)));
+
+        loop {
+            let block_on_finished = self.update();
+            if block_on_finished {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 }
