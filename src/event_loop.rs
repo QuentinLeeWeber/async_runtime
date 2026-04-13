@@ -7,10 +7,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::signal::{Signal, SignalState};
+use crate::{
+    signal::{Signal, SignalState},
+    thread::ThreadResult,
+};
 
 thread_local! {
     static CURRENT_HANDLE: RefCell<Option<EventLoopHandle>> = const { RefCell::new(None) };
+}
+
+struct Task<T> {
+    fut: Pin<Box<dyn Future<Output = T> + 'static>>,
+    signal: Arc<Signal>,
+    result: Arc<Mutex<ThreadResult<T>>>,
 }
 
 #[derive(Clone)]
@@ -19,7 +28,7 @@ pub struct EventLoopHandle {
 }
 
 struct EventLoopQueue {
-    tasks: Vec<(Pin<Box<dyn Future<Output = ()>>>, Arc<Signal>)>,
+    tasks: Vec<Task<()>>,
     timers: Vec<(Instant, Waker)>,
 }
 
@@ -37,16 +46,19 @@ impl EventLoopHandle {
         self.queues.lock().unwrap().timers.push((time, waker));
     }
 
-    pub fn spawn<F>(&mut self, fut: F)
+    pub fn spawn<F>(&mut self, fut: F, result: Arc<Mutex<ThreadResult<F::Output>>>)
     where
         F: Future<Output = ()> + 'static,
     {
         let waker = Arc::new(Signal::new());
-        self.queues
-            .lock()
-            .unwrap()
-            .tasks
-            .push((Box::pin(fut.into_future()), waker));
+
+        let task = Task {
+            fut: Box::pin(fut.into_future()),
+            signal: waker,
+            result,
+        };
+
+        self.queues.lock().unwrap().tasks.push(task);
     }
 
     pub fn current<'a>() -> Option<Self> {
@@ -56,7 +68,7 @@ impl EventLoopHandle {
 
 pub struct EventLoop {
     timers: Vec<(Instant, Waker)>,
-    tasks: Vec<(Pin<Box<dyn Future<Output = ()>>>, Arc<Signal>)>,
+    tasks: Vec<Task<()>>,
 }
 
 impl EventLoop {
@@ -88,20 +100,26 @@ impl EventLoop {
             }
         });
 
-        self.tasks.iter_mut().for_each(|(task, signal)| {
-            if let SignalState::Waiting = *signal.state.lock().unwrap() {
+        self.tasks.iter_mut().for_each(|task| {
+            if let SignalState::Waiting = *task.signal.state.lock().unwrap() {
                 return;
             }
 
             match task
+                .fut
                 .as_mut()
-                .poll(&mut Context::from_waker(&Waker::from(Arc::clone(&signal))))
-            {
+                .poll(&mut Context::from_waker(&Waker::from(Arc::clone(
+                    &task.signal,
+                )))) {
                 Poll::Pending => {
-                    signal.pause();
+                    task.signal.pause();
                 }
-                Poll::Ready(_) => {
-                    signal.ready();
+                Poll::Ready(result) => {
+                    task.result.lock().unwrap().inner = Some(result);
+                    if let Some(waker) = task.result.lock().unwrap().waker.take() {
+                        waker.wake();
+                    }
+                    task.signal.ready();
                 }
             }
         });
@@ -110,12 +128,12 @@ impl EventLoop {
             return true;
         }
 
-        if let SignalState::Ready = *self.tasks.get(0).unwrap().1.state.lock().unwrap() {
+        if let SignalState::Ready = *self.tasks.get(0).unwrap().signal.state.lock().unwrap() {
             return true;
         }
 
-        self.tasks.retain(|(_task, signal)| {
-            if let SignalState::Ready = *signal.state.lock().unwrap() {
+        self.tasks.retain(|task| {
+            if let SignalState::Ready = *task.signal.state.lock().unwrap() {
                 return false;
             }
             true
@@ -126,8 +144,15 @@ impl EventLoop {
 
     pub fn block_on<F: Future<Output = ()> + 'static>(&mut self, future: F) {
         let signal = Arc::new(Signal::new());
-        let task = Box::pin(future);
-        self.tasks.push((task, Arc::clone(&signal)));
+        let task = Task {
+            fut: Box::pin(future),
+            signal: Arc::clone(&signal),
+            result: Arc::new(Mutex::new(ThreadResult {
+                inner: None,
+                waker: None,
+            })),
+        };
+        self.tasks.push(task);
 
         loop {
             let block_on_finished = self.update();
