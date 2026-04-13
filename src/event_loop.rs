@@ -76,7 +76,6 @@ impl EventLoop {
             let mut queues = event_loop.queues.lock().unwrap();
 
             self.tasks.append(&mut queues.tasks);
-
             self.timers.append(&mut queues.timers);
         }
 
