@@ -1,6 +1,4 @@
-[package]
-name = "async_runtime"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["async_runtime", "example"]
 
-[dependencies]
+resolver = "3"

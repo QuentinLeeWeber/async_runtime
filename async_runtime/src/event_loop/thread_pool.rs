@@ -1,8 +1,4 @@
-use crate::{
-    event_loop::{CURRENT_HANDLE, EventLoopHandle},
-    signal::SignalState,
-    task::Task,
-};
+use super::{CURRENT_HANDLE, EventLoopHandle, signal::SignalState, task::Task};
 use std::{
     collections::VecDeque,
     sync::{

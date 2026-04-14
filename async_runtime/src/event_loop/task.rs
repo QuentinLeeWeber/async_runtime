@@ -1,4 +1,4 @@
-use crate::{signal::Signal, thread::ThreadResult};
+use super::{signal::Signal, thread::ThreadResult};
 use std::{
     future::Future,
     pin::Pin,

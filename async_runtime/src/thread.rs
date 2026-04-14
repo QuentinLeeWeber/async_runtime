@@ -23,7 +23,7 @@ where
 }
 
 #[derive(Default)]
-pub(crate) struct ThreadResult<T> {
+pub struct ThreadResult<T> {
     pub inner: Option<T>,
     pub waker: Option<Waker>,
 }

@@ -1,16 +1,5 @@
+use async_runtime::{event_loop::EventLoop, mutex::Mutex, sleep::SleepFuture, thread};
 use std::{sync::Arc, time::Duration};
-
-mod event_loop;
-mod mutex;
-mod signal;
-mod sleep;
-mod task;
-mod thread;
-mod thread_pool;
-
-use event_loop::EventLoop;
-use mutex::Mutex;
-use sleep::SleepFuture;
 
 fn main() {
     EventLoop::new(3).block_on(async_main());

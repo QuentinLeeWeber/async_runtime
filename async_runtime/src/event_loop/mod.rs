@@ -1,9 +1,4 @@
-use crate::{
-    signal::{Signal, SignalState},
-    task::Task,
-    thread::{self, ThreadResult},
-    thread_pool::{MultiThreadedPool, SingleThreadedPool},
-};
+use crate::thread::{self, ThreadResult};
 use std::{
     cell::RefCell,
     future::{Future, IntoFuture},
@@ -11,6 +6,14 @@ use std::{
     task::Waker,
     time::{Duration, Instant},
 };
+
+mod signal;
+mod task;
+mod thread_pool;
+
+use signal::{Signal, SignalState};
+use task::Task;
+use thread_pool::{MultiThreadedPool, SingleThreadedPool};
 
 thread_local! {
     pub(crate) static CURRENT_HANDLE: RefCell<Option<EventLoopHandle>> = const { RefCell::new(None) };
