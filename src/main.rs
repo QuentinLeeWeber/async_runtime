@@ -4,14 +4,16 @@ mod event_loop;
 mod mutex;
 mod signal;
 mod sleep;
+mod task;
 mod thread;
+mod thread_pool;
 
 use event_loop::EventLoop;
 use mutex::Mutex;
 use sleep::SleepFuture;
 
 fn main() {
-    EventLoop::new().block_on(async_main());
+    EventLoop::new(3).block_on(async_main());
 }
 
 async fn async_main() {

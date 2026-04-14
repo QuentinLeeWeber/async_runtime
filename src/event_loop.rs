@@ -1,25 +1,19 @@
+use crate::{
+    signal::{Signal, SignalState},
+    task::Task,
+    thread::{self, ThreadResult},
+    thread_pool::{MultiThreadedPool, SingleThreadedPool},
+};
 use std::{
     cell::RefCell,
     future::{Future, IntoFuture},
-    pin::Pin,
     sync::{Arc, Mutex},
-    task::{Context, Poll, Waker},
+    task::Waker,
     time::{Duration, Instant},
 };
 
-use crate::{
-    signal::{Signal, SignalState},
-    thread::ThreadResult,
-};
-
 thread_local! {
-    static CURRENT_HANDLE: RefCell<Option<EventLoopHandle>> = const { RefCell::new(None) };
-}
-
-struct Task<T> {
-    fut: Pin<Box<dyn Future<Output = T> + 'static>>,
-    signal: Arc<Signal>,
-    result: Arc<Mutex<ThreadResult<T>>>,
+    pub(crate) static CURRENT_HANDLE: RefCell<Option<EventLoopHandle>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone)]
@@ -33,7 +27,7 @@ struct EventLoopQueue {
 }
 
 impl EventLoopHandle {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             queues: Arc::new(Mutex::new(EventLoopQueue {
                 tasks: Vec::new(),
@@ -48,7 +42,7 @@ impl EventLoopHandle {
 
     pub fn spawn<F>(&mut self, fut: F, result: Arc<Mutex<ThreadResult<F::Output>>>)
     where
-        F: Future<Output = ()> + 'static,
+        F: Future<Output = ()> + Send + 'static,
     {
         let waker = Arc::new(Signal::new());
 
@@ -66,31 +60,52 @@ impl EventLoopHandle {
     }
 }
 
+enum EventLoopMode {
+    SingleThreaded {
+        event_loop_handle: EventLoopHandle,
+        worker: SingleThreadedPool,
+    },
+    MultiThreaded {
+        event_loop_handles: Vec<EventLoopHandle>,
+        worker_pool: MultiThreadedPool,
+    },
+}
+
 pub struct EventLoop {
     timers: Vec<(Instant, Waker)>,
     tasks: Vec<Task<()>>,
+    mode: EventLoopMode,
 }
 
 impl EventLoop {
-    pub fn new() -> Self {
+    pub fn new(thread_count: usize) -> Self {
         let handle = EventLoopHandle::new();
-        CURRENT_HANDLE.with(|cell| cell.replace(Some(handle)));
+        CURRENT_HANDLE.with(|cell| cell.replace(Some(handle.clone())));
+
+        let mode = if thread_count == 1 {
+            println!("Event Loop Mode: single threaded");
+            EventLoopMode::SingleThreaded {
+                event_loop_handle: handle,
+                worker: SingleThreadedPool::new(),
+            }
+        } else {
+            println!("Event Loop Mode: multi threaded ({} threads)", thread_count);
+            let (worker_pool, mut handles) = MultiThreadedPool::new(thread_count);
+            handles.push(handle);
+            EventLoopMode::MultiThreaded {
+                event_loop_handles: handles,
+                worker_pool,
+            }
+        };
 
         Self {
             timers: Vec::new(),
             tasks: Vec::new(),
+            mode,
         }
     }
 
-    fn update(&mut self) -> bool {
-        {
-            let event_loop = EventLoopHandle::current().unwrap();
-            let mut queues = event_loop.queues.lock().unwrap();
-
-            self.tasks.append(&mut queues.tasks);
-            self.timers.append(&mut queues.timers);
-        }
-
+    fn update(&mut self) {
         self.timers.retain(|(time, waker)| {
             if *time <= Instant::now() {
                 waker.wake_by_ref();
@@ -100,36 +115,46 @@ impl EventLoop {
             }
         });
 
-        self.tasks.iter_mut().for_each(|task| {
-            if let SignalState::Waiting = *task.signal.state.lock().unwrap() {
-                return;
-            }
-
-            match task
-                .fut
-                .as_mut()
-                .poll(&mut Context::from_waker(&Waker::from(Arc::clone(
-                    &task.signal,
-                )))) {
-                Poll::Pending => {
-                    task.signal.pause();
+        match self.mode {
+            EventLoopMode::SingleThreaded {
+                ref event_loop_handle,
+                ref mut worker,
+            } => {
+                {
+                    let mut queues = event_loop_handle.queues.lock().unwrap();
+                    self.tasks.append(&mut queues.tasks);
+                    self.timers.append(&mut queues.timers);
                 }
-                Poll::Ready(result) => {
-                    task.result.lock().unwrap().inner = Some(result);
-                    if let Some(waker) = task.result.lock().unwrap().waker.take() {
-                        waker.wake();
-                    }
-                    task.signal.ready();
-                }
+                let awaked_tasks =
+                    self.tasks
+                        .retain_filter(|task| match *task.signal.state.lock().unwrap() {
+                            SignalState::Awaked => true,
+                            _ => false,
+                        });
+
+                worker.add_tasks(awaked_tasks);
+                worker.update();
             }
-        });
+            EventLoopMode::MultiThreaded {
+                ref event_loop_handles,
+                ref mut worker_pool,
+            } => {
+                for handle in event_loop_handles {
+                    let mut queues = handle.queues.lock().unwrap();
+                    self.tasks.append(&mut queues.tasks);
+                    self.timers.append(&mut queues.timers);
+                }
 
-        if self.tasks.is_empty() {
-            return true;
-        }
+                let awaked_tasks =
+                    self.tasks
+                        .retain_filter(|task| match *task.signal.state.lock().unwrap() {
+                            SignalState::Awaked => true,
+                            _ => false,
+                        });
 
-        if let SignalState::Ready = *self.tasks.get(0).unwrap().signal.state.lock().unwrap() {
-            return true;
+                worker_pool.add_tasks(awaked_tasks);
+                worker_pool.update();
+            }
         }
 
         self.tasks.retain(|task| {
@@ -138,25 +163,17 @@ impl EventLoop {
             }
             true
         });
-
-        false
     }
 
-    pub fn block_on<F: Future<Output = ()> + 'static>(&mut self, future: F) {
-        let signal = Arc::new(Signal::new());
-        let task = Task {
-            fut: Box::pin(future),
-            signal: Arc::clone(&signal),
-            result: Arc::new(Mutex::new(ThreadResult {
-                inner: None,
-                waker: None,
-            })),
-        };
-        self.tasks.push(task);
+    pub fn block_on<F>(&mut self, future: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let main = thread::spawn(future);
 
         loop {
-            let block_on_finished = self.update();
-            if block_on_finished {
+            self.update();
+            if main.is_ready {
                 break;
             }
             std::thread::sleep(Duration::from_millis(1));
@@ -167,5 +184,26 @@ impl EventLoop {
 impl Drop for EventLoop {
     fn drop(&mut self) {
         CURRENT_HANDLE.set(None);
+    }
+}
+
+trait VecExt<T> {
+    fn retain_filter<F>(&mut self, f: F) -> Vec<T>
+    where
+        F: FnMut(&T) -> bool;
+}
+
+impl<T> VecExt<T> for Vec<T> {
+    fn retain_filter<F>(&mut self, mut f: F) -> Vec<T>
+    where
+        F: FnMut(&T) -> bool,
+    {
+        let mut filtered: Vec<T> = Vec::new();
+        for i in (0..self.len()).into_iter().rev().collect::<Vec<usize>>() {
+            if f(&self[i]) {
+                filtered.push(self.swap_remove(i));
+            }
+        }
+        filtered
     }
 }

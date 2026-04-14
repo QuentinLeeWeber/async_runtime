@@ -7,14 +7,14 @@ use std::{
 };
 
 pub struct Mutex<T> {
-    inner: Arc<UnsafeCell<T>>,
+    inner: Arc<std::sync::Mutex<UnsafeCell<T>>>,
     queue: Arc<std::sync::Mutex<Vec<Waker>>>,
 }
 
 impl<T> Mutex<T> {
     pub fn new(inner: T) -> Self {
         Self {
-            inner: Arc::new(UnsafeCell::new(inner)),
+            inner: Arc::new(std::sync::Mutex::new(UnsafeCell::new(inner))),
             queue: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
@@ -66,20 +66,20 @@ impl Future for LockFuture {
 }
 
 pub struct MutexGuard<T> {
-    inner: Arc<UnsafeCell<T>>,
+    inner: Arc<std::sync::Mutex<UnsafeCell<T>>>,
     queue: Arc<std::sync::Mutex<Vec<Waker>>>,
 }
 
 impl<T> DerefMut for MutexGuard<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.inner.get() }
+        unsafe { &mut *self.inner.lock().unwrap().get() }
     }
 }
 
 impl<T> Deref for MutexGuard<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.inner.get() }
+        unsafe { &*self.inner.lock().unwrap().get() }
     }
 }
 

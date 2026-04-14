@@ -7,17 +7,18 @@ use std::{
 
 pub fn spawn<F>(fut: F) -> JoinHandle<F::Output>
 where
-    F: Future<Output = ()> + 'static,
+    F: Future<Output = ()> + Send + 'static,
 {
     let result = Arc::new(Mutex::new(ThreadResult::default()));
 
     EventLoopHandle::current()
-        .expect("no active runtime")
+        .expect("spawn failed: no active runtime")
         .spawn(fut, result.clone());
 
     JoinHandle {
         result,
         has_registered: false,
+        is_ready: false,
     }
 }
 
@@ -30,6 +31,7 @@ pub(crate) struct ThreadResult<T> {
 pub struct JoinHandle<T> {
     result: Arc<Mutex<ThreadResult<T>>>,
     has_registered: bool,
+    pub is_ready: bool,
 }
 
 impl<T> Future for JoinHandle<T> {
@@ -41,7 +43,10 @@ impl<T> Future for JoinHandle<T> {
             self.has_registered = true;
         }
 
-        if let Some(result) = self.result.lock().unwrap().inner.take() {
+        let result = self.result.lock().unwrap().inner.take();
+
+        if let Some(result) = result {
+            self.is_ready = true;
             Poll::Ready(result)
         } else {
             Poll::Pending

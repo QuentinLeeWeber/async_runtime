@@ -3,10 +3,15 @@ use std::{
     task::Wake,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum SignalState {
+    // Task is running / assigned to the worker pool
     Running,
+    // Task waiting to be assigned to a worker
+    Awaked,
+    // Task is waiting to be awaked
     Waiting,
+    // Task is done, and can be removed
     Ready,
 }
 
@@ -18,7 +23,7 @@ pub struct Signal {
 impl Signal {
     pub fn new() -> Self {
         Self {
-            state: Mutex::new(SignalState::Running),
+            state: Mutex::new(SignalState::Awaked),
         }
     }
 
@@ -29,7 +34,7 @@ impl Signal {
 
     pub fn notify(&self) {
         let mut state = self.state.lock().unwrap();
-        *state = SignalState::Running;
+        *state = SignalState::Awaked;
     }
 
     pub fn ready(&self) {

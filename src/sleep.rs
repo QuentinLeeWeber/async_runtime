@@ -28,7 +28,8 @@ impl Future for SleepFuture {
         let completion_time = self.completion_time.clone();
 
         if !self.is_spawned {
-            let mut event_loop = EventLoopHandle::current().expect("no active runtime");
+            let mut event_loop =
+                EventLoopHandle::current().expect("sleep failed: no active runtime");
             event_loop.add_timer(completion_time, cx.waker().clone());
 
             self.is_spawned = true;
