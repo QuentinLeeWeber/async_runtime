@@ -20,7 +20,7 @@ thread_local! {
 }
 
 #[derive(Clone)]
-pub struct EventLoopHandle {
+pub(crate) struct EventLoopHandle {
     queues: Arc<Mutex<EventLoopQueue>>,
 }
 
@@ -39,7 +39,7 @@ impl EventLoopHandle {
         }
     }
 
-    pub fn add_timer(&mut self, time: Instant, waker: Waker) {
+    pub(crate) fn add_timer(&mut self, time: Instant, waker: Waker) {
         self.queues.lock().unwrap().timers.push((time, waker));
     }
 
@@ -58,7 +58,7 @@ impl EventLoopHandle {
         self.queues.lock().unwrap().tasks.push(task);
     }
 
-    pub fn current<'a>() -> Option<Self> {
+    pub(crate) fn current<'a>() -> Option<Self> {
         CURRENT_HANDLE.with(|cell| cell.borrow_mut().clone())
     }
 }
