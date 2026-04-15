@@ -5,8 +5,6 @@ use std::{
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum SignalState {
-    // Task is running / assigned to the worker pool
-    Running,
     // Task waiting to be assigned to a worker
     Awaked,
     // Task is waiting to be awaked

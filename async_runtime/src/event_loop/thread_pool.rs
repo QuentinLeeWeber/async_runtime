@@ -1,6 +1,5 @@
-use super::{CURRENT_HANDLE, EventLoopHandle, signal::SignalState, task::Task};
+use super::{CURRENT_HANDLE, EventLoopHandle, prelude::*, signal::SignalState, task::Task};
 use std::{
-    collections::VecDeque,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -15,7 +14,7 @@ pub struct SingleThreadedPool {
 
 pub struct MultiThreadedPool {
     worker: Vec<Worker>,
-    tasks: VecDeque<Task<()>>,
+    tasks: Vec<Task<()>>,
     task_return: mpsc::Receiver<Task<()>>,
 }
 
@@ -24,20 +23,14 @@ impl SingleThreadedPool {
         Self { tasks: Vec::new() }
     }
 
-    pub fn add_tasks(&mut self, mut tasks: Vec<Task<()>>) {
-        tasks
-            .iter_mut()
-            .for_each(|t| *t.signal.state.lock().unwrap() = SignalState::Running);
+    pub fn add_tasks(&mut self, tasks: Vec<Task<()>>) {
         self.tasks.extend(tasks);
     }
 
     pub fn update(&mut self) {
         self.tasks
             .iter_mut()
-            .filter(|t| {
-                *t.signal.state.lock().unwrap() == SignalState::Running
-                    || *t.signal.state.lock().unwrap() == SignalState::Awaked
-            })
+            .filter(|t| *t.signal.state.lock().unwrap() == SignalState::Awaked)
             .for_each(|task| {
                 task.poll();
             });
@@ -61,32 +54,35 @@ impl MultiThreadedPool {
 
         let this = Self {
             worker,
-            tasks: VecDeque::new(),
+            tasks: Vec::new(),
             task_return: return_rx,
         };
 
         (this, handles)
     }
 
-    pub fn add_tasks(&mut self, mut tasks: Vec<Task<()>>) {
-        tasks
-            .iter_mut()
-            .for_each(|t| *t.signal.state.lock().unwrap() = SignalState::Running);
+    pub fn add_tasks(&mut self, tasks: Vec<Task<()>>) {
         self.tasks.extend(tasks);
     }
 
     pub fn update(&mut self) {
         while let Ok(task) = self.task_return.try_recv() {
-            self.tasks.push_back(task);
+            self.tasks.push(task);
         }
 
+        let mut awaked_tasks = self
+            .tasks
+            .retain_filter(|task| *task.signal.state.lock().unwrap() == SignalState::Awaked);
+
         for worker in self.worker.iter_mut() {
-            if worker.is_available.load(Ordering::Relaxed) {
-                match self.tasks.pop_front() {
-                    Some(task) => worker.tx.send(task).expect("could not send task to worker"),
+            if worker.is_available.load(Ordering::SeqCst) {
+                match awaked_tasks.pop() {
+                    Some(task) => {
+                        worker.is_available.store(false, Ordering::Release);
+                        worker.tx.send(task).expect("could not send task to worker")
+                    }
                     None => return,
                 }
-                worker.is_available.store(false, Ordering::Release);
             }
         }
     }
@@ -127,13 +123,12 @@ impl Worker {
         task_return: mpsc::Sender<Task<()>>,
     ) {
         loop {
-            is_available.store(true, Ordering::Release);
-
             let mut task = rx.recv().unwrap();
             task.poll();
             if *task.signal.state.lock().unwrap() != SignalState::Ready {
                 task_return.send(task).unwrap();
             }
+            is_available.store(true, Ordering::SeqCst);
         }
     }
 }

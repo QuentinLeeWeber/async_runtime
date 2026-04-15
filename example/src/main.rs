@@ -2,7 +2,7 @@ use async_runtime::{event_loop::EventLoop, mutex::Mutex, sleep::SleepFuture, thr
 use std::{sync::Arc, time::Duration};
 
 fn main() {
-    EventLoop::new(3).block_on(async_main());
+    EventLoop::new(2).block_on(async_main());
 }
 
 async fn async_main() {
