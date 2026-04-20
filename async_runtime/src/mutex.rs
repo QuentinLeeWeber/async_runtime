@@ -1,5 +1,6 @@
 use std::{
     cell::UnsafeCell,
+    collections::VecDeque,
     ops::{Deref, DerefMut},
     pin::Pin,
     sync::Arc,
@@ -8,21 +9,21 @@ use std::{
 
 pub struct Mutex<T> {
     inner: Arc<std::sync::Mutex<UnsafeCell<T>>>,
-    queue: Arc<std::sync::Mutex<Vec<Waker>>>,
+    queue: Arc<std::sync::Mutex<WakerQueue>>,
 }
 
 impl<T> Mutex<T> {
     pub fn new(inner: T) -> Self {
         Self {
             inner: Arc::new(std::sync::Mutex::new(UnsafeCell::new(inner))),
-            queue: Arc::new(std::sync::Mutex::new(Vec::new())),
+            queue: Arc::new(std::sync::Mutex::new(WakerQueue::default())),
         }
     }
 
     pub async fn lock(&self) -> MutexGuard<T> {
         LockFuture {
             queue: self.queue.clone(),
-            has_registered: false,
+            id: None,
         }
         .await;
 
@@ -35,26 +36,39 @@ impl<T> Mutex<T> {
     }
 }
 
+#[derive(Debug, Default)]
+struct WakerQueue {
+    buf: VecDeque<(Waker, u64)>,
+    next_id: u64,
+}
+
 struct LockFuture {
-    queue: Arc<std::sync::Mutex<Vec<Waker>>>,
-    has_registered: bool,
+    queue: Arc<std::sync::Mutex<WakerQueue>>,
+    id: Option<u64>,
 }
 
 impl Future for LockFuture {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let waker = cx.waker();
-
-        if !self.has_registered {
-            self.queue.lock().unwrap().push(waker.clone());
-            self.has_registered = true;
+        if self.id.is_none() {
+            let next_id = {
+                let mut queue = self.queue.lock().unwrap();
+                let next_id = queue.next_id;
+                queue.buf.push_back((cx.waker().clone(), next_id));
+                queue.next_id += 1;
+                next_id
+            };
+            self.id = Some(next_id);
         }
 
-        let queue = self.queue.lock().unwrap();
+        let id = match self.id {
+            Some(id) => id,
+            None => return Poll::Pending,
+        };
 
-        if let Some(waker) = queue.iter().peekable().peek() {
-            if waker.will_wake(waker) {
+        if let Some(waker) = self.queue.lock().unwrap().buf.get(0) {
+            if id == waker.1 {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -67,7 +81,7 @@ impl Future for LockFuture {
 
 pub struct MutexGuard<T> {
     inner: Arc<std::sync::Mutex<UnsafeCell<T>>>,
-    queue: Arc<std::sync::Mutex<Vec<Waker>>>,
+    queue: Arc<std::sync::Mutex<WakerQueue>>,
 }
 
 impl<T> DerefMut for MutexGuard<T> {
@@ -86,10 +100,10 @@ impl<T> Deref for MutexGuard<T> {
 impl<T> Drop for MutexGuard<T> {
     fn drop(&mut self) {
         let mut queue = self.queue.lock().unwrap();
-        queue.remove(0);
-
-        if let Some(next_waker) = queue.iter().peekable().peek_mut() {
-            next_waker.wake_by_ref();
+        queue.buf.remove(0);
+        if let Some(next_waker) = queue.buf.get(0).cloned() {
+            queue.buf.pop_front();
+            next_waker.0.wake_by_ref();
         }
     }
 }

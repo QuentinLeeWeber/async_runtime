@@ -15,19 +15,23 @@ async fn async_main() {
         async move {
             SleepFuture::new(Duration::from_secs(1)).await;
             loop {
-                let mut data = data.lock().await;
-                println!("test loop 2 | data: {}", *data);
-                *data += 1;
-                SleepFuture::new(Duration::from_secs(2)).await;
+                {
+                    let mut data = data.lock().await;
+                    println!("test loop 2 | data: {}", *data);
+                    *data += 1;
+                }
+                SleepFuture::new(Duration::from_millis(2000)).await;
             }
         }
     });
 
     loop {
-        let mut data = data.lock().await;
-        println!("test loop 1 | data: {}", *data);
-        *data += 1;
-        SleepFuture::new(Duration::from_secs(2)).await;
+        {
+            let mut data = data.lock().await;
+            println!("test loop 1 | data: {}", *data);
+            *data += 1;
+        }
+        SleepFuture::new(Duration::from_millis(2000)).await;
     }
 }
 
