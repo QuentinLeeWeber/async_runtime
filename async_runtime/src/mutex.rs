@@ -7,15 +7,18 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-pub struct Mutex<T> {
-    inner: Arc<std::sync::Mutex<UnsafeCell<T>>>,
+unsafe impl<T> Send for Mutex<T> {}
+unsafe impl<T> Sync for Mutex<T> {}
+
+pub struct Mutex<T: ?Sized> {
+    inner: Arc<UnsafeCell<T>>,
     queue: Arc<std::sync::Mutex<WakerQueue>>,
 }
 
 impl<T> Mutex<T> {
     pub fn new(inner: T) -> Self {
         Self {
-            inner: Arc::new(std::sync::Mutex::new(UnsafeCell::new(inner))),
+            inner: Arc::new(UnsafeCell::new(inner)),
             queue: Arc::new(std::sync::Mutex::new(WakerQueue::default())),
         }
     }
@@ -80,20 +83,20 @@ impl Future for LockFuture {
 }
 
 pub struct MutexGuard<T> {
-    inner: Arc<std::sync::Mutex<UnsafeCell<T>>>,
+    inner: Arc<UnsafeCell<T>>,
     queue: Arc<std::sync::Mutex<WakerQueue>>,
 }
 
 impl<T> DerefMut for MutexGuard<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.inner.lock().unwrap().get() }
+        unsafe { &mut *self.inner.get() }
     }
 }
 
 impl<T> Deref for MutexGuard<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.inner.lock().unwrap().get() }
+        unsafe { &*self.inner.get() }
     }
 }
 
