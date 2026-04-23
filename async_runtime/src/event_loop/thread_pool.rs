@@ -50,7 +50,6 @@ impl MultiThreadedPool {
     pub fn new(num_worker: usize) -> (Self, Vec<EventLoopHandle>) {
         let (return_tx, return_rx) = mpsc::channel();
         let (worker, handles) = (0..num_worker)
-            .into_iter()
             .map(|_| Worker::new(return_tx.clone()))
             .collect();
 

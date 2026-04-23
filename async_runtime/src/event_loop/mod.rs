@@ -58,7 +58,7 @@ impl EventLoopHandle {
         self.queues.lock().unwrap().tasks.push(task);
     }
 
-    pub(crate) fn current<'a>() -> Option<Self> {
+    pub(crate) fn current() -> Option<Self> {
         CURRENT_HANDLE.with(|cell| cell.borrow_mut().clone())
     }
 }
@@ -128,12 +128,9 @@ impl EventLoop {
                     self.tasks.append(&mut queues.tasks);
                     self.timers.append(&mut queues.timers);
                 }
-                let awaked_tasks =
-                    self.tasks
-                        .retain_filter(|task| match *task.signal().state.lock().unwrap() {
-                            SignalState::Awaked => true,
-                            _ => false,
-                        });
+                let awaked_tasks = self.tasks.retain_filter(|task| {
+                    matches!(*task.signal().state.lock().unwrap(), SignalState::Awaked)
+                });
 
                 worker.add_tasks(awaked_tasks);
                 worker.update();
@@ -148,12 +145,9 @@ impl EventLoop {
                     self.timers.append(&mut queues.timers);
                 }
 
-                let awaked_tasks =
-                    self.tasks
-                        .retain_filter(|task| match *task.signal().state.lock().unwrap() {
-                            SignalState::Awaked => true,
-                            _ => false,
-                        });
+                let awaked_tasks = self.tasks.retain_filter(|task| {
+                    matches!(*task.signal().state.lock().unwrap(), SignalState::Awaked)
+                });
 
                 worker_pool.add_tasks(awaked_tasks);
                 worker_pool.update();

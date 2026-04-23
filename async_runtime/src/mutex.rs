@@ -70,7 +70,7 @@ impl Future for LockFuture {
             None => return Poll::Pending,
         };
 
-        if let Some(waker) = self.queue.lock().unwrap().buf.get(0) {
+        if let Some(waker) = self.queue.lock().unwrap().buf.front() {
             if id == waker.1 {
                 Poll::Ready(())
             } else {
@@ -104,7 +104,7 @@ impl<T> Drop for MutexGuard<T> {
     fn drop(&mut self) {
         let mut queue = self.queue.lock().unwrap();
         queue.buf.remove(0);
-        if let Some(next_waker) = queue.buf.get(0).cloned() {
+        if let Some(next_waker) = queue.buf.front().cloned() {
             queue.buf.pop_front();
             next_waker.0.wake_by_ref();
         }

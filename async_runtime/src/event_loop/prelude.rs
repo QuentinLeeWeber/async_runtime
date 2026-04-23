@@ -10,7 +10,7 @@ impl<T> VecExt<T> for Vec<T> {
         F: FnMut(&T) -> bool,
     {
         let mut filtered: Vec<T> = Vec::new();
-        for i in (0..self.len()).into_iter().rev().collect::<Vec<usize>>() {
+        for i in (0..self.len()).rev().collect::<Vec<usize>>() {
             if f(&self[i]) {
                 filtered.push(self.swap_remove(i));
             }

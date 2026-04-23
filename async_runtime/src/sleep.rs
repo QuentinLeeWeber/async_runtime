@@ -25,7 +25,7 @@ impl Future for SleepFuture {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let completion_time = self.completion_time.clone();
+        let completion_time = self.completion_time;
 
         if !self.is_spawned {
             let mut event_loop =

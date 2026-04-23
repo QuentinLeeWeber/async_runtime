@@ -34,7 +34,7 @@ pub fn main(
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
-    if input_fn.sig.ident.to_string() != "main" {
+    if input_fn.sig.ident != "main" {
         panic!("async_runtime::main, should only be used on the 'main' function");
     }
 
@@ -68,7 +68,7 @@ impl Parse for MainArgs {
             Ok(ident) => ident.to_string(),
             Err(_) => return Ok(MainArgs { thread_count: 1 }),
         };
-        if thread_count.to_string() != "thread_count" {
+        if thread_count != "thread_count" {
             return Err(input.error(""));
         }
 
