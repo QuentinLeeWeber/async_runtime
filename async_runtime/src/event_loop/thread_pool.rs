@@ -1,4 +1,6 @@
-use super::{CURRENT_HANDLE, EventLoopHandle, prelude::*, signal::SignalState, task::Task};
+use crate::event_loop::task::TaskHeader;
+
+use super::{CURRENT_HANDLE, EventLoopHandle, prelude::*, signal::SignalState};
 use std::{
     sync::{
         Arc,
@@ -9,13 +11,13 @@ use std::{
 };
 
 pub struct SingleThreadedPool {
-    tasks: Vec<Task<()>>,
+    tasks: Vec<Box<dyn TaskHeader>>,
 }
 
 pub struct MultiThreadedPool {
     worker: Vec<Worker>,
-    tasks: Vec<Task<()>>,
-    task_return: mpsc::Receiver<Task<()>>,
+    tasks: Vec<Box<dyn TaskHeader>>,
+    task_return: mpsc::Receiver<Box<dyn TaskHeader>>,
 }
 
 impl SingleThreadedPool {
@@ -23,20 +25,20 @@ impl SingleThreadedPool {
         Self { tasks: Vec::new() }
     }
 
-    pub fn add_tasks(&mut self, tasks: Vec<Task<()>>) {
+    pub fn add_tasks(&mut self, tasks: Vec<Box<dyn TaskHeader>>) {
         self.tasks.extend(tasks);
     }
 
     pub fn update(&mut self) {
         self.tasks
             .iter_mut()
-            .filter(|t| *t.signal.state.lock().unwrap() == SignalState::Awaked)
+            .filter(|t| *t.signal().state.lock().unwrap() == SignalState::Awaked)
             .for_each(|task| {
                 task.poll();
             });
 
         self.tasks.retain(|task| {
-            if let SignalState::Ready = *task.signal.state.lock().unwrap() {
+            if let SignalState::Ready = *task.signal().state.lock().unwrap() {
                 return false;
             }
             true
@@ -61,7 +63,7 @@ impl MultiThreadedPool {
         (this, handles)
     }
 
-    pub fn add_tasks(&mut self, tasks: Vec<Task<()>>) {
+    pub fn add_tasks(&mut self, tasks: Vec<Box<dyn TaskHeader>>) {
         self.tasks.extend(tasks);
     }
 
@@ -72,7 +74,7 @@ impl MultiThreadedPool {
 
         let mut awaked_tasks = self
             .tasks
-            .retain_filter(|task| *task.signal.state.lock().unwrap() == SignalState::Awaked);
+            .retain_filter(|task| *task.signal().state.lock().unwrap() == SignalState::Awaked);
 
         for worker in self.worker.iter_mut() {
             if worker.is_available.load(Ordering::SeqCst) {
@@ -90,12 +92,12 @@ impl MultiThreadedPool {
 
 struct Worker {
     _handle: JoinHandle<()>,
-    tx: mpsc::Sender<Task<()>>,
+    tx: mpsc::Sender<Box<dyn TaskHeader>>,
     is_available: Arc<AtomicBool>,
 }
 
 impl Worker {
-    fn new(task_return: mpsc::Sender<Task<()>>) -> (Self, EventLoopHandle) {
+    fn new(task_return: mpsc::Sender<Box<dyn TaskHeader>>) -> (Self, EventLoopHandle) {
         let (tx, rx) = mpsc::channel();
         let is_available = Arc::new(AtomicBool::new(true));
         let handle = EventLoopHandle::new();
@@ -118,14 +120,14 @@ impl Worker {
 
     #[inline]
     fn routine(
-        rx: mpsc::Receiver<Task<()>>,
+        rx: mpsc::Receiver<Box<dyn TaskHeader>>,
         is_available: Arc<AtomicBool>,
-        task_return: mpsc::Sender<Task<()>>,
+        task_return: mpsc::Sender<Box<dyn TaskHeader>>,
     ) {
         loop {
             let mut task = rx.recv().unwrap();
             task.poll();
-            if *task.signal.state.lock().unwrap() != SignalState::Ready {
+            if *task.signal().state.lock().unwrap() != SignalState::Ready {
                 task_return.send(task).unwrap();
             }
             is_available.store(true, Ordering::SeqCst);

@@ -12,8 +12,20 @@ pub(crate) struct Task<T> {
     pub result: Arc<Mutex<ThreadResult<T>>>,
 }
 
-impl<T> Task<T> {
-    pub fn poll(&mut self) {
+pub(crate) trait TaskHeader: Send {
+    fn poll(&mut self);
+    fn signal(&self) -> Arc<Signal>;
+}
+
+impl<T> TaskHeader for Task<T>
+where
+    T: Send,
+{
+    fn signal(&self) -> Arc<Signal> {
+        Arc::clone(&self.signal)
+    }
+
+    fn poll(&mut self) {
         match self
             .fut
             .as_mut()

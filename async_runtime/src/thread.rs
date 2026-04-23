@@ -7,9 +7,10 @@ use std::{
 
 pub fn spawn<F>(fut: F) -> JoinHandle<F::Output>
 where
-    F: Future<Output = ()> + Send + 'static,
+    F: Future + Send + 'static,
+    F::Output: Send,
 {
-    let result = Arc::new(Mutex::new(ThreadResult::default()));
+    let result = Arc::new(Mutex::new(ThreadResult::<F::Output>::default()));
 
     EventLoopHandle::current()
         .expect("spawn failed: no active runtime")
@@ -22,10 +23,18 @@ where
     }
 }
 
-#[derive(Default)]
 pub struct ThreadResult<T> {
     pub inner: Option<T>,
     pub waker: Option<Waker>,
+}
+
+impl<T> Default for ThreadResult<T> {
+    fn default() -> Self {
+        Self {
+            inner: None,
+            waker: None,
+        }
+    }
 }
 
 pub struct JoinHandle<T> {

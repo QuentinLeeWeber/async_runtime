@@ -1,4 +1,7 @@
-use crate::thread::{self, ThreadResult};
+use crate::{
+    event_loop::task::TaskHeader,
+    thread::{self, ThreadResult},
+};
 use std::{
     cell::RefCell,
     future::{Future, IntoFuture},
@@ -27,7 +30,7 @@ pub(crate) struct EventLoopHandle {
 }
 
 struct EventLoopQueue {
-    tasks: Vec<Task<()>>,
+    tasks: Vec<Box<dyn TaskHeader>>,
     timers: Vec<(Instant, Waker)>,
 }
 
@@ -47,15 +50,16 @@ impl EventLoopHandle {
 
     pub fn spawn<F>(&mut self, fut: F, result: Arc<Mutex<ThreadResult<F::Output>>>)
     where
-        F: Future<Output = ()> + Send + 'static,
+        F: Future + Send + 'static,
+        F::Output: Send,
     {
         let waker = Arc::new(Signal::new());
 
-        let task = Task {
+        let task = Box::new(Task {
             fut: Box::pin(fut.into_future()),
             signal: waker,
             result,
-        };
+        });
 
         self.queues.lock().unwrap().tasks.push(task);
     }
@@ -78,7 +82,7 @@ enum EventLoopMode {
 
 pub struct EventLoop {
     timers: Vec<(Instant, Waker)>,
-    tasks: Vec<Task<()>>,
+    tasks: Vec<Box<dyn TaskHeader>>,
     mode: EventLoopMode,
 }
 
@@ -132,7 +136,7 @@ impl EventLoop {
                 }
                 let awaked_tasks =
                     self.tasks
-                        .retain_filter(|task| match *task.signal.state.lock().unwrap() {
+                        .retain_filter(|task| match *task.signal().state.lock().unwrap() {
                             SignalState::Awaked => true,
                             _ => false,
                         });
@@ -152,7 +156,7 @@ impl EventLoop {
 
                 let awaked_tasks =
                     self.tasks
-                        .retain_filter(|task| match *task.signal.state.lock().unwrap() {
+                        .retain_filter(|task| match *task.signal().state.lock().unwrap() {
                             SignalState::Awaked => true,
                             _ => false,
                         });
@@ -163,7 +167,7 @@ impl EventLoop {
         }
 
         self.tasks.retain(|task| {
-            if let SignalState::Ready = *task.signal.state.lock().unwrap() {
+            if let SignalState::Ready = *task.signal().state.lock().unwrap() {
                 return false;
             }
             true
