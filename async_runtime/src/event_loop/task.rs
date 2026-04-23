@@ -6,10 +6,23 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-pub(crate) struct Task<T> {
-    pub fut: Pin<Box<dyn Future<Output = T> + Send + 'static>>,
-    pub signal: Arc<Signal>,
-    pub result: Arc<Mutex<ThreadResult<T>>>,
+pub struct Task<T> {
+    fut: Pin<Box<dyn Future<Output = T> + Send + 'static>>,
+    signal: Arc<Signal>,
+    result: Arc<Mutex<ThreadResult<T>>>,
+}
+
+impl<T> Task<T> {
+    pub fn new(
+        fut: impl Future<Output = T> + Send + 'static,
+        result: Arc<Mutex<ThreadResult<T>>>,
+    ) -> Self {
+        Self {
+            fut: Box::pin(fut),
+            signal: Arc::new(Signal::new()),
+            result,
+        }
+    }
 }
 
 pub(crate) trait TaskHeader: Send {

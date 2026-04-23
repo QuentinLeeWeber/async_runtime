@@ -16,7 +16,7 @@ mod task;
 mod thread_pool;
 
 use prelude::*;
-use signal::{Signal, SignalState};
+use signal::SignalState;
 use task::Task;
 use thread_pool::{MultiThreadedPool, SingleThreadedPool};
 
@@ -53,13 +53,7 @@ impl EventLoopHandle {
         F: Future + Send + 'static,
         F::Output: Send,
     {
-        let waker = Arc::new(Signal::new());
-
-        let task = Box::new(Task {
-            fut: Box::pin(fut.into_future()),
-            signal: waker,
-            result,
-        });
+        let task = Box::new(Task::new(fut.into_future(), result));
 
         self.queues.lock().unwrap().tasks.push(task);
     }
@@ -182,7 +176,7 @@ impl EventLoop {
 
         loop {
             self.update();
-            if main.is_ready {
+            if main.is_ready() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(1));

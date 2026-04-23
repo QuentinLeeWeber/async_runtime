@@ -19,11 +19,10 @@ where
     JoinHandle {
         result,
         has_registered: false,
-        is_ready: false,
     }
 }
 
-pub struct ThreadResult<T> {
+pub(crate) struct ThreadResult<T> {
     pub inner: Option<T>,
     pub waker: Option<Waker>,
 }
@@ -40,7 +39,12 @@ impl<T> Default for ThreadResult<T> {
 pub struct JoinHandle<T> {
     result: Arc<Mutex<ThreadResult<T>>>,
     has_registered: bool,
-    pub is_ready: bool,
+}
+
+impl<T> JoinHandle<T> {
+    pub fn is_ready(&self) -> bool {
+        self.result.lock().unwrap().inner.is_some()
+    }
 }
 
 impl<T> Future for JoinHandle<T> {
@@ -55,10 +59,23 @@ impl<T> Future for JoinHandle<T> {
         let result = self.result.lock().unwrap().inner.take();
 
         if let Some(result) = result {
-            self.is_ready = true;
             Poll::Ready(result)
         } else {
             Poll::Pending
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event_loop::EventLoop;
+
+    #[test]
+    fn thread_return_type_not_unit() {
+        EventLoop::new(1).block_on(async {
+            let handle = spawn(async { 42 });
+            assert_eq!(handle.await, 42);
+        });
     }
 }
