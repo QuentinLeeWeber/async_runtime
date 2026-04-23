@@ -7,17 +7,15 @@ use std::{
 
 use crate::event_loop::EventLoopHandle;
 
-pub struct SleepFuture {
+struct SleepFuture {
     completion_time: Instant,
     is_spawned: bool,
 }
 
-impl SleepFuture {
-    pub fn new(duration: Duration) -> Self {
-        Self {
-            completion_time: Instant::now() + duration,
-            is_spawned: false,
-        }
+pub fn sleep(duration: Duration) -> impl Future<Output = ()> {
+    SleepFuture {
+        completion_time: Instant::now() + duration,
+        is_spawned: false,
     }
 }
 

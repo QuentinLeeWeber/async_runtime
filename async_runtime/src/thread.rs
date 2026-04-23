@@ -69,7 +69,7 @@ impl<T> Future for JoinHandle<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{event_loop::EventLoop, sleep::SleepFuture};
+    use crate::{event_loop::EventLoop, time::sleep};
     use std::time::Duration;
 
     #[crate::test]
@@ -81,7 +81,7 @@ mod tests {
     #[crate::test]
     async fn thread_return_type_unit() {
         let handle = spawn(async {
-            SleepFuture::new(Duration::from_millis(1)).await;
+            sleep(Duration::from_millis(1)).await;
             ()
         });
         assert_eq!(handle.await, ());
@@ -90,7 +90,7 @@ mod tests {
     #[crate::test(thread_count = 2)]
     async fn thread_return_type_unit_multi_thread() {
         let handle = spawn(async {
-            SleepFuture::new(Duration::from_millis(1)).await;
+            sleep(Duration::from_millis(1)).await;
             ()
         });
         assert_eq!(handle.await, ());

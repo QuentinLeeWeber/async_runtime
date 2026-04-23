@@ -1,4 +1,4 @@
-use async_runtime::{event_loop::EventLoop, mutex::Mutex, sleep::SleepFuture, thread};
+use async_runtime::{event_loop::EventLoop, mutex::Mutex, thread, time::sleep};
 use std::{sync::Arc, time::Duration};
 
 #[async_runtime::main(thread_count = 2)]
@@ -10,14 +10,14 @@ async fn main() {
     thread::spawn({
         let data = Arc::clone(&data);
         async move {
-            SleepFuture::new(Duration::from_secs(1)).await;
+            sleep(Duration::from_secs(1)).await;
             loop {
                 {
                     let mut data = data.lock().await;
                     println!("test loop 2 | data: {}", *data);
                     *data += 1;
                 }
-                SleepFuture::new(Duration::from_millis(2000)).await;
+                sleep(Duration::from_millis(2000)).await;
             }
         }
     });
@@ -28,7 +28,7 @@ async fn main() {
             println!("test loop 1 | data: {}", *data);
             *data += 1;
         }
-        SleepFuture::new(Duration::from_millis(2000)).await;
+        sleep(Duration::from_millis(2000)).await;
     }
 }
 
@@ -46,7 +46,7 @@ async fn thread_b() {
 }
 
 async fn thread_c() {
-    SleepFuture::new(Duration::from_millis(500)).await;
+    sleep(Duration::from_millis(500)).await;
     println!("C");
 }
 
