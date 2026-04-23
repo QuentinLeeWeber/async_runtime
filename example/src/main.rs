@@ -1,11 +1,8 @@
 use async_runtime::{event_loop::EventLoop, mutex::Mutex, sleep::SleepFuture, thread};
 use std::{sync::Arc, time::Duration};
 
-fn main() {
-    EventLoop::new(2).block_on(async_main());
-}
-
-async fn async_main() {
+#[async_runtime::main(thread_count = 2)]
+async fn main() {
     let data: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
 
     thread::spawn(thread_a()).await;
