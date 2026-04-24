@@ -86,13 +86,11 @@ impl EventLoop {
         CURRENT_HANDLE.with(|cell| cell.replace(Some(handle.clone())));
 
         let mode = if thread_count == 1 {
-            println!("Event Loop Mode: single threaded");
             EventLoopMode::SingleThreaded {
                 event_loop_handle: handle,
                 worker: SingleThreadedPool::new(),
             }
         } else {
-            println!("Event Loop Mode: multi threaded ({} threads)", thread_count);
             let (worker_pool, mut handles) = MultiThreadedPool::new(thread_count);
             handles.push(handle);
             EventLoopMode::MultiThreaded {
