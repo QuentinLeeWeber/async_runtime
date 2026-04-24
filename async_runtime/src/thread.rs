@@ -37,7 +37,7 @@ impl<T> Default for ThreadResult<T> {
 }
 
 pub struct JoinHandle<T> {
-    result: Arc<Mutex<ThreadResult<T>>>,
+    pub(crate) result: Arc<Mutex<ThreadResult<T>>>,
     has_registered: bool,
 }
 
@@ -68,17 +68,19 @@ impl<T> Future for JoinHandle<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate as async_runtime;
+
     use super::*;
-    use crate::{event_loop::EventLoop, time::sleep};
+    use async_runtime::time::sleep;
     use std::time::Duration;
 
-    #[crate::test]
+    #[async_runtime::test]
     async fn thread_return_type_not_unit() {
         let handle = spawn(async { 42 });
         assert_eq!(handle.await, 42);
     }
 
-    #[crate::test]
+    #[async_runtime::test]
     async fn thread_return_type_unit() {
         let handle = spawn(async {
             sleep(Duration::from_millis(1)).await;
@@ -87,7 +89,7 @@ mod tests {
         assert_eq!(handle.await, ());
     }
 
-    #[crate::test(thread_count = 2)]
+    #[async_runtime::test(thread_count = 2)]
     async fn thread_return_type_unit_multi_thread() {
         let handle = spawn(async {
             sleep(Duration::from_millis(1)).await;

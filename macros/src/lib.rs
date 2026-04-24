@@ -23,7 +23,29 @@ pub fn test(
     proc_macro::TokenStream::from(quote! {
         #[test]
         fn #fn_name() {
-            EventLoop::new(#num_threads).block_on(async #fn_block );
+            async_runtime::event_loop::EventLoop::new(#num_threads).block_on(async #fn_block );
+        }
+    })
+}
+
+#[proc_macro_attribute]
+pub fn block_on(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let input_fn = parse_macro_input!(item as ItemFn);
+    if input_fn.sig.asyncness.is_none() {
+        panic!("function must be async");
+    }
+
+    let fn_block = input_fn.block;
+    let fn_name = input_fn.sig.ident;
+    let fn_args = input_fn.sig.inputs;
+    let fn_return_type = input_fn.sig.output;
+    let num_threads = get_thread_count(attr);
+    proc_macro::TokenStream::from(quote! {
+        fn #fn_name(#fn_args) #fn_return_type {
+            async_runtime::event_loop::EventLoop::new(#num_threads).block_on(async #fn_block );
         }
     })
 }
@@ -46,7 +68,7 @@ pub fn main(
     let num_threads = get_thread_count(attr);
     proc_macro::TokenStream::from(quote! {
         fn main() {
-            EventLoop::new(#num_threads).block_on(async #fn_block );
+            async_runtime::event_loop::EventLoop::new(#num_threads).block_on(async #fn_block );
         }
     })
 }

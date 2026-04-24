@@ -1,4 +1,4 @@
-use async_runtime::{event_loop::EventLoop, mutex::Mutex, thread, time::sleep};
+use async_runtime::{mutex::Mutex, thread, time::sleep};
 use std::{sync::Arc, time::Duration};
 
 #[async_runtime::main(thread_count = 2)]

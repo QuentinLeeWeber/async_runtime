@@ -162,16 +162,17 @@ impl EventLoop {
         });
     }
 
-    pub fn block_on<F>(&mut self, future: F)
+    pub fn block_on<F>(&mut self, future: F) -> F::Output
     where
-        F: Future<Output = ()> + Send + 'static,
+        F: Future + Send + 'static,
+        F::Output: Send,
     {
         let main = thread::spawn(future);
 
         loop {
             self.update();
             if main.is_ready() {
-                break;
+                break main.result.lock().unwrap().inner.take().unwrap();
             }
             std::thread::sleep(Duration::from_millis(1));
         }
