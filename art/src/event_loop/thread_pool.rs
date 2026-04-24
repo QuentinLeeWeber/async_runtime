@@ -1,13 +1,12 @@
-use crate::event_loop::task::TaskHeader;
-
 use super::{CURRENT_HANDLE, EventLoopHandle, prelude::*, signal::SignalState};
+use crate::event_loop::task::TaskHeader;
 use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    thread::{self, JoinHandle},
+    thread,
 };
 
 pub struct SingleThreadedPool {
@@ -18,6 +17,11 @@ pub struct MultiThreadedPool {
     worker: Vec<Worker>,
     tasks: Vec<Box<dyn TaskHeader>>,
     task_return: mpsc::Receiver<Box<dyn TaskHeader>>,
+}
+
+struct Worker {
+    tx: mpsc::Sender<Box<dyn TaskHeader>>,
+    is_available: Arc<AtomicBool>,
 }
 
 impl SingleThreadedPool {
@@ -79,20 +83,14 @@ impl MultiThreadedPool {
             if worker.is_available.load(Ordering::SeqCst) {
                 match awaked_tasks.pop() {
                     Some(task) => {
-                        worker.is_available.store(false, Ordering::Release);
+                        worker.is_available.store(false, Ordering::SeqCst);
                         worker.tx.send(task).expect("could not send task to worker")
                     }
-                    None => return,
+                    None => break,
                 }
             }
         }
     }
-}
-
-struct Worker {
-    _handle: JoinHandle<()>,
-    tx: mpsc::Sender<Box<dyn TaskHeader>>,
-    is_available: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -101,18 +99,17 @@ impl Worker {
         let is_available = Arc::new(AtomicBool::new(true));
         let handle = EventLoopHandle::new();
 
-        let this = Self {
-            _handle: thread::spawn({
-                let is_available = Arc::clone(&is_available);
-                let handle = handle.clone();
-                move || {
-                    CURRENT_HANDLE.with(|cell| cell.replace(Some(handle)));
-                    Self::routine(rx, is_available, task_return)
-                }
-            }),
-            tx,
-            is_available,
-        };
+        thread::spawn({
+            let is_available = Arc::clone(&is_available);
+            let handle = handle.clone();
+
+            move || {
+                CURRENT_HANDLE.with(|cell| cell.replace(Some(handle)));
+                Self::routine(rx, is_available, task_return)
+            }
+        });
+
+        let this = Self { tx, is_available };
 
         (this, handle)
     }
@@ -124,7 +121,11 @@ impl Worker {
         task_return: mpsc::Sender<Box<dyn TaskHeader>>,
     ) {
         loop {
-            let mut task = rx.recv().unwrap();
+            let mut task = match rx.recv() {
+                Ok(task) => task,
+                Err(_) => break,
+            };
+
             task.poll();
             if *task.signal().state.lock().unwrap() != SignalState::Ready {
                 task_return.send(task).unwrap();

@@ -110,3 +110,36 @@ impl<T> Drop for MutexGuard<T> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate as art;
+
+    use art::thread;
+
+    #[art::test]
+    async fn mutex_count_two_threads() {
+        let data = Arc::new(Mutex::new(0));
+
+        let handle = thread::spawn({
+            let data = Arc::clone(&data);
+
+            async move {
+                for _ in 0..1000 {
+                    let mut guard = data.lock().await;
+                    *guard += 1;
+                }
+            }
+        });
+
+        for _ in 0..1000 {
+            let mut guard = data.lock().await;
+            *guard += 1;
+        }
+
+        handle.await;
+
+        assert_eq!(*data.lock().await, 2000);
+    }
+}
