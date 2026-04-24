@@ -1,4 +1,4 @@
 [workspace]
-members = ["async_runtime", "benchmarks", "example", "macros"]
+members = ["art", "benchmarks", "example", "macros"]
 
 resolver = "3"

@@ -1,7 +1,7 @@
-use async_runtime::{mutex::Mutex, thread, time::sleep};
+use art::{mutex::Mutex, thread, time::sleep};
 use std::{sync::Arc, time::Duration};
 
-#[async_runtime::main(thread_count = 2)]
+#[art::main(thread_count = 2)]
 async fn main() {
     let data: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
 

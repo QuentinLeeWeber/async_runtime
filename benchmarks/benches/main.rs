@@ -27,7 +27,7 @@ fn fibonacci(n: u64) -> u64 {
     }
 }
 
-#[async_runtime::block_on]
+#[art::block_on]
 async fn fibonacci_with_runtime(n: u64) -> u64 {
     fibonacci(n)
 }

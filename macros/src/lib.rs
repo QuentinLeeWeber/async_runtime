@@ -23,7 +23,7 @@ pub fn test(
     proc_macro::TokenStream::from(quote! {
         #[test]
         fn #fn_name() {
-            async_runtime::event_loop::EventLoop::new(#num_threads).block_on(async #fn_block)
+            art::event_loop::EventLoop::new(#num_threads).block_on(async #fn_block)
         }
     })
 }
@@ -52,7 +52,7 @@ pub fn block_on(
 
     proc_macro::TokenStream::from(quote! {
         fn #fn_name(#fn_args) -> #fn_return_type {
-            async_runtime::event_loop::EventLoop::new(#num_threads).block_on(async move #fn_block)
+            art::event_loop::EventLoop::new(#num_threads).block_on(async move #fn_block)
         }
     })
 }
@@ -75,7 +75,7 @@ pub fn main(
     let num_threads = get_thread_count(attr);
     proc_macro::TokenStream::from(quote! {
         fn main() {
-            async_runtime::event_loop::EventLoop::new(#num_threads).block_on(async #fn_block)
+            art::event_loop::EventLoop::new(#num_threads).block_on(async #fn_block)
         }
     })
 }

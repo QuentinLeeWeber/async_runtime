@@ -68,19 +68,19 @@ impl<T> Future for JoinHandle<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate as async_runtime;
+    use crate as art;
 
     use super::*;
-    use async_runtime::time::sleep;
+    use art::time::sleep;
     use std::time::Duration;
 
-    #[async_runtime::test]
+    #[art::test]
     async fn thread_return_type_not_unit() {
         let handle = spawn(async { 42 });
         assert_eq!(handle.await, 42);
     }
 
-    #[async_runtime::test]
+    #[art::test]
     async fn thread_return_type_unit() {
         let handle = spawn(async {
             sleep(Duration::from_millis(1)).await;
@@ -89,7 +89,7 @@ mod tests {
         assert_eq!(handle.await, ());
     }
 
-    #[async_runtime::test(thread_count = 2)]
+    #[art::test(thread_count = 2)]
     async fn thread_return_type_unit_multi_thread() {
         let handle = spawn(async {
             sleep(Duration::from_millis(1)).await;
